@@ -1,0 +1,91 @@
+# 0. Simple Web Stack
+
+## Web Infrastructure Design for [www.foobar.com](http://www.foobar.com)
+
+### 1. User Request Flow
+
+When a user wants to access the website:
+
+1. The user types `www.foobar.com` in their browser.
+2. The browser queries the Domain Name System (DNS) to resolve `www.foobar.com` to the server's IP address (8.8.8.8).
+3. The browser sends an HTTP request to the server at 8.8.8.8.
+
+---
+
+### 2. Components of the Infrastructure
+
+#### Server
+
+* A **server** is a computer or virtual machine that hosts services accessible over a network.
+* In this case, the server hosts the web server, application server, application files, and the database.
+
+#### Domain Name
+
+* The **domain name** (`foobar.com`) is a human-readable address that maps to the server’s IP address.
+* The `www` in `www.foobar.com` is a **CNAME or A record** in DNS pointing to the IP of the server.
+
+#### Web Server
+
+* The **web server** (Nginx) handles HTTP requests from clients.
+* It serves static files (HTML, CSS, JS) and forwards dynamic requests to the application server.
+
+#### Application Server
+
+* The **application server** processes business logic and runs the application code.
+* It generates dynamic content, interacts with the database, and responds back to the web server.
+
+#### Application Files
+
+* The **application files** include the website code: HTML, CSS, JavaScript, and server-side scripts.
+
+#### Database
+
+* The **database** (MySQL) stores and manages structured data used by the application.
+* The application server queries the database to retrieve or store information.
+
+#### Communication
+
+* The server communicates with the user's computer using **HTTP or HTTPS** protocols over TCP/IP.
+
+---
+
+### 3. Issues with this Infrastructure
+
+1. **Single Point of Failure (SPOF)**
+
+   * If the server fails, the website becomes completely unavailable.
+
+2. **Downtime During Maintenance**
+
+   * Updating or deploying new code may require restarting the web server, causing temporary downtime.
+
+3. **Scalability Limitations**
+
+   * If too much traffic arrives, a single server cannot handle the load efficiently.
+   * Cannot horizontally scale without additional infrastructure.
+
+---
+
+### Summary Diagram (Text Representation)
+
+```
+[User] --> DNS (www.foobar.com -> 8.8.8.8) --> [Server]
+                                     |
+                                     |--> Nginx (Web Server)
+                                     |       |
+                                     |       --> Application Server
+                                     |               |
+                                     |               --> MySQL Database
+                                     |
+                                     --> Application Files
+```
+
+---
+
+This setup demonstrates a **simple one-server web stack**, which is straightforward but limited in terms of availability and scalability.
+
+---
+
+If you want, I can also create a **more visual ASCII diagram** that shows the flow from user to web server to app server to database—it looks much cleaner for whiteboard-style submissions.
+
+Do you want me to do that?
