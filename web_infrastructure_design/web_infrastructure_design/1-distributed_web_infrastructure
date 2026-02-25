@@ -1,0 +1,79 @@
+## Quick start: user access flow
+
+1. User requests **[www.foobar.com](http://www.foobar.com)**.
+2. DNS sends user to the **Load Balancer (HAProxy)**.
+3. HAProxy forwards request to **Server A** or **Server B**.
+4. Nginx on the selected server serves static files and sends dynamic work to the **application server**.
+5. App server interacts with **MySQL** (Primary on one server, Replica on the other).
+
+---
+
+## Top-level ASCII diagram (whiteboard)
+
+```
+                           User / Internet
+                                |
+                                | DNS → LB IP
+                                |
+                             +--v--+
+                +-------------| LB |-------------+
+                |             |HAProxy           |
+                |             +--+--+            |
+                |                |               |
+                |                | leastconn     |
+        +-------+-------+        |        +------+-------+
+        |   Server A    |        |        |   Server B    |
+        | Nginx         |        |        | Nginx         |
+        | App Server    |        |        | App Server    |
+        | Codebase      |        |        | Codebase      |
+        | MySQL Primary |<-------+------->| MySQL Replica |
+        +---------------+  replication     +---------------+
+```
+
+---
+
+## Purpose of each component
+
+* **Load Balancer (HAProxy):** Distributes traffic between servers and improves availability.
+* **Two backend servers:** Provide redundancy and allow traffic to continue even if one server fails.
+* **Nginx:** Handles incoming HTTP requests and forwards dynamic requests to the app server.
+* **Application server:** Runs the application code and handles the logic.
+* **MySQL Primary–Replica:** Stores data; Primary handles writes, Replica provides redundancy and optional read scaling.
+
+---
+
+## Load balancer behavior
+
+* **Algorithm:** `leastconn` — sends new connections to the server with the fewest active connections.
+* **Setup:** **Active–Active** — both backend servers receive traffic.
+
+  * *Active–Active:* all nodes serve requests.
+  * *Active–Passive:* only one node handles traffic; the other is standby.
+
+---
+
+## How MySQL Primary–Replica works
+
+* **Primary:** Handles all write operations.
+* **Replica:** Continuously copies Primary changes using binary log replication; can serve read-only queries.
+* **App impact:** Writes must go to Primary; reads *may* go to Replica if configured.
+
+---
+
+## Issues in this infrastructure
+
+### Single Points of Failure (SPOF)
+
+* Only one HAProxy instance → if it fails, site is down.
+* Primary database → if it fails, no writes are possible.
+
+### Security issues
+
+* No HTTPS → insecure traffic.
+* No firewall → servers exposed unnecessarily.
+
+### No monitoring
+
+* No visibility into server health, replication lag, or failures.
+
+---

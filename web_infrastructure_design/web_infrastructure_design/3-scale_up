@@ -1,0 +1,95 @@
+## Brief user flow
+
+1. The user requests **[https://www.foobar.com](https://www.foobar.com)**.
+2. DNS resolves `www.foobar.com` to the **HAProxy Load‑Balancer Cluster** (two LBs configured together).
+3. The active LB forwards requests to the web server.
+4. The web server sends dynamic requests to the application server.
+5. The application server queries the database server.
+
+---
+
+## ASCII diagram (whiteboard‑style)
+
+```
+                         Internet / User
+                               |
+                         DNS -> LB Cluster IP
+                               |
+                    +-----------------------+
+                    |  HAProxy Cluster      |
+                    | (LB1 <-> LB2 synced)  |
+                    +----------+------------+
+                               |
+                        Load‑balanced traffic
+                               |
+                         +-----v-----+
+                         | Web Server|
+                         |  Nginx    |
+                         +-----+-----+
+                               |
+                               |
+                         +-----v-----+
+                         | App Server|
+                         |   Gunicorn|
+                         +-----+-----+
+                               |
+                               |
+                         +-----v-----+
+                         | Database  |
+                         |  MySQL    |
+                         +-----------+
+```
+
+---
+
+## New elements and why they are added
+
+### **1. One additional server**
+
+A new physical/virtual server is added to host one of the split components (web, app, or DB). Splitting components onto separate servers improves:
+
+* performance (each component has its own resources)
+* security (DB is isolated and not publicly reachable)
+* scalability (you can scale each layer independently)
+
+### **2. Load‑Balancer Cluster (HAProxy + second HAProxy)**
+
+Instead of a single HAProxy, two LBs are configured in a cluster (often via **keepalived**, **VRRP**, or built‑in HAProxy features).
+
+* Ensures **high availability** — if LB1 goes down, LB2 instantly takes over.
+* Removes the load‑balancer as a single point of failure.
+* Provides a shared **virtual IP** that always points to the active LB.
+
+### **3. Split component servers (Web, App, Database all separated)**
+
+Splitting components across multiple servers improves architecture clarity and operations.
+
+#### **Web Server (Nginx) on its own server**
+
+* Handles static files
+* Terminates or forwards HTTP(S)
+* Forwards dynamic requests to the application server
+* Keeps traffic fast by offloading dynamic work
+
+#### **Application Server on its own server**
+
+* Runs the actual backend code (API, dynamic pages)
+* Processes business logic
+* Communicates with the database
+* Isolated so heavy application logic does not slow down the web server
+
+#### **Database Server (MySQL) on its own server**
+
+* Stores persistent data
+* Is isolated from web‑facing components for security
+* Can later be extended to a Master‑Replica architecture
+
+---
+
+## Why this infrastructure improves reliability
+
+* The **load‑balancer cluster** avoids downtime due to LB failure.
+* Splitting components avoids resource contention (DB I/O spikes no longer slow down the app or web layer).
+* Each layer can be monitored and scaled independently.
+
+---

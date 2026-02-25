@@ -1,0 +1,121 @@
+## Quick start: user access flow
+
+1. User requests **[https://www.foobar.com](https://www.foobar.com)**.
+2. DNS resolves `www.foobar.com` to the **Load Balancer (HAProxy)** public IP.
+3. The **perimeter firewall** in front of the LB filters unwanted traffic.
+4. HAProxy (with SSL certificate for [www.foobar.com](http://www.foobar.com)) terminates TLS, performs health checks and forwards requests to Server A or Server B over an encrypted or private network.
+5. Nginx on the chosen server handles static files and proxies dynamic requests to the local application server.
+6. App server reads/writes to MySQL (Primary on Server A, Replica on Server B).
+7. Each server runs a **monitoring client** (Sumo Logic agent, Prometheus exporter, or similar) that forwards metrics/logs to the monitoring backend.
+
+---
+
+## Top-level ASCII diagram (whiteboard)
+
+```
+                             Internet / User
+                                  |
+                                  | DNS -> LB IP
+                                  |
+                              [ Firewall #1 ]  <-- perimeter firewall for LB
+                                  |
+                               +--v--+
+                               | LB   |  HAProxy (SSL: www.foobar.com)
+                               +--+--+
+                                  | leastconn
+                  +---------------+----------------+
+                  |                                |
+            [ Firewall #2 ]                    [ Firewall #3 ]
+             (Server A host)                    (Server B host)
+                  |                                |
+             +----v----+                       +---v----+
+             | ServerA |                       | ServerB |
+             | Nginx   |                       | Nginx    |
+             | App     |                       | App      |
+             | MySQL P | <-- binlog replicate -->| MySQL R  |
+             | Mon client|                      | Mon client|
+             +---------+                       +---------+
+
+Monitoring sink (SumoLogic / Prometheus/Grafana) receives metrics/logs from Mon clients.
+```
+
+---
+
+## New elements added and why
+
+* **3 Firewalls**: one at the perimeter (protects LB) and one host-based firewall on each backend server (restricts inbound ports to only necessary services). Protects from unwanted access and reduces attack surface.
+* **1 SSL certificate for `www.foobar.com`**: enables HTTPS so traffic is encrypted in transit and browsers show the secure lock.
+* **3 Monitoring clients**: each server runs an agent that sends logs/metrics/traces to a centralized monitoring service (e.g., Sumo Logic, Datadog, or Prometheus pushgateway). This gives visibility into health, performance, and security.
+
+---
+
+## What firewalls are for
+
+* **Network filtering**: allow only required ports (e.g., 80/443 from LB to public, 22 only from admin IPs, 3306 only from private host network).
+* **Micro-segmentation**: limit lateral movement if a host is compromised (host firewalls block unnecessary east-west traffic).
+* **Mitigation**: block known bad IPs, restrict management access, and reduce the blast radius of attacks.
+
+---
+
+## Why serve traffic over HTTPS
+
+* **Encryption**: protects credentials, cookies, sensitive data from eavesdroppers.
+* **Integrity**: prevents tampering in transit.
+* **Trust & SEO**: browsers mark sites secure; some features require HTTPS.
+* **TLS best practice**: use modern ciphers, HTTP/2 where supported, and automatic certificate renewal (Let’s Encrypt or managed certs).
+
+---
+
+## What monitoring is used for and how data is collected
+
+* **Purpose:** detect outages, measure performance (latency, QPS), track errors, alert on high CPU/disk, observe replication lag, and analyze logs for security incidents.
+* **Monitoring stack options:**
+
+  * **Log/metric collector (Sumo Logic, Datadog, ELK, Splunk)** — agents forward logs and metrics to cloud SaaS.
+  * **Prometheus + exporters** — pull-based metrics collection (server exporters, nginx exporter, mysql exporter). Use Grafana for dashboards.
+* **How monitoring collects data:**
+
+  * **Agents** (Sumo/Datadog) run on each host and forward:
+
+    * system metrics (CPU, memory, disk)
+    * application logs (nginx access/error logs)
+    * custom app metrics (via stats endpoint)
+  * **Exporters** expose /metrics endpoints (Prometheus) which the Prometheus server scrapes periodically.
+  * **Log forwarding** parses access logs into metrics (e.g., request counts, response codes) at the collector.
+
+---
+
+## How to monitor web server QPS (queries per second)
+
+* **Option A (metrics endpoint):** enable nginx `stub_status` or use `nginx-prometheus-exporter`. Prometheus scrapes `nginx_http_requests_total`. Compute QPS with `rate(nginx_http_requests_total[1m])`.
+
+* **Option B (log parsing):** forward nginx access logs to Sumo Logic or Elastic; create a metric counting requests per minute (Sumo query or Elasticsearch aggregation), visualize QPS in dashboards.
+
+* **Option C (app instrumentation):** instrument the app to emit `http_requests_total` counters via OpenTelemetry/Prometheus metric libraries and compute rate.
+
+Choose the approach that fits the monitoring platform (pull for Prometheus, push/parse for SaaS agents).
+
+---
+
+## Issues & trade-offs in this secured + monitored design
+
+* **Terminating SSL at the load balancer is an issue**
+
+  * **Risk:** internal traffic between LB and backend may be unencrypted if you don’t re-encrypt — this creates a trust gap inside your network.
+  * **Mitigation:** use TLS re-encryption from LB → backend (mutual TLS if needed) or run LB in a hardened network with private subnet only.
+  * **Operational note:** terminating at LB centralizes cert management and offloads CPU, but requires careful handling of sensitive headers (X-Forwarded-For) and internal security.
+
+* **Only one MySQL server accepts writes (Primary-only) is an issue**
+
+  * **Risk:** Primary is a write SPOF — if it fails, writes stop until you promote a replica.
+  * **Mitigation:** automate failover/promotion (Orchestrator, MHA), or use multi-primary clusters (Galera) if app supports it.
+  * **Consistency:** replicas are asynchronous by default and may lag — application must tolerate eventual consistency for reads from replicas.
+
+* **Servers running all components (web, app, DB) is a problem**
+
+  * **Resource contention:** web/app and DB compete for CPU, memory, disk I/O — one workload can starve others.
+  * **Scaling difficulty:** you cannot scale database and app independently (you’d need to clone full nodes instead of scaling only the app layer).
+  * **Security/blast radius:** compromising one host exposes DB and app on the same machine.
+  * **Mitigation:** separate roles—move DB to dedicated DB servers or managed DB service; use stateless app servers behind the LB; use shared session store (Redis) if necessary.
+
+---
